@@ -33,8 +33,11 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+alembic upgrade head
 fastapi dev app/main.py
 ```
+
+**After every `git pull`, run `pip install -r requirements.txt` and `alembic upgrade head` in `backend/` (venv active).**
 
 **4. Frontend** → http://localhost:5173 (in a new terminal)
 
@@ -43,3 +46,23 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## Changing the database
+
+1. Add or edit a table in `backend/app/models/models.py`
+2. In `backend/` (venv active), generate a migration:
+
+```bash
+alembic revision --autogenerate -m "describe your change"
+```
+
+3. Review the new file in `alembic/versions/`
+4. Run it, then commit the model and migration together:
+
+```bash
+alembic upgrade head
+```
+
+Never edit a migration that has been pushed; create a new one.
+
+**After every `git pull`, run `pip install -r requirements.txt` and `alembic upgrade head` in `backend/` (venv active).**
