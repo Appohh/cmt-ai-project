@@ -65,6 +65,28 @@ alembic upgrade head
 python -m app.seed
 ```
 
+## Backend structure
+
+```
+backend/app/
+├── main.py            # creates the app, connects the routers
+├── seed.py            # local test data
+├── core/              # database connection, config, security
+├── models/models.py   # all database tables
+├── conferences/       # example, copy this pattern
+│   ├── router.py      # endpoints
+│   └── schemas.py     # data the API accepts and returns
+├── auth/
+├── submissions/
+├── reviews/
+├── notifications/
+└── ai/
+```
+
+New endpoints: add `router.py` and `schemas.py` to the folder, then connect the router in `main.py`.
+
+**Why not return the model directly?** A model (`Conference`) is the database table with all columns. A schema (`ConferencePublic`) contains only the fields that may leave the API, so private data such as `password_hash` never leaks. Always set a schema as `response_model`.
+
 ## Changing the database
 
 1. Add or edit a table in `backend/app/models/models.py`
