@@ -47,6 +47,24 @@ npm install
 npm run dev
 ```
 
+## Test data (local only)
+
+In `backend/` (venv active):
+
+```bash
+python -m app.seed
+```
+
+Test users: `<role>@example.com` (author, reviewer, organizer, admin, guest), password `password`.
+
+Reset and reseed (**deletes all data**):
+
+```bash
+alembic downgrade base
+alembic upgrade head
+python -m app.seed
+```
+
 ## Changing the database
 
 1. Add or edit a table in `backend/app/models/models.py`
