@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -63,7 +64,7 @@ def _build_test_jwt(
             return create_access_token(
                 {"sub": str(user_id), "email": email, "roles": role_values}
             )
-        except (ImportError, AttributeError):
+        except (ImportError, AttributeError, NotImplementedError):
             pass
 
     def _b64url(data: bytes) -> str:
@@ -102,6 +103,15 @@ def test_engine():
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
+
+        # Ensure SQLite emits explicit BEGIN so nested SAVEPOINT rollbacks isolate test commits.
+        @event.listens_for(engine, "connect")
+        def _set_sqlite_isolation(dbapi_connection, _connection_record):
+            dbapi_connection.isolation_level = None
+
+        @event.listens_for(engine, "begin")
+        def _emit_sqlite_begin(conn):
+            conn.exec_driver_sql("BEGIN")
     SQLModel.metadata.create_all(engine)
     yield engine
     SQLModel.metadata.drop_all(engine)
