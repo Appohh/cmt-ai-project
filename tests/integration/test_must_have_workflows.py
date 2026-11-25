@@ -239,3 +239,86 @@ def test_conference_creation_valid_invitation_and_admin_rbac(
     # Non-admin user cannot access Admin overview
     forbidden_admin = client.get("/admin/overview", headers=auth_headers("alice"))
     assert forbidden_admin.status_code == 403
+
+
+@pytest.mark.integration
+@pytest.mark.functional
+def test_ai_topic_tags_and_provider_switching(
+    client,
+    auth_headers,
+    seeded_submission,
+):
+    """US-25 / US-26 / FR-09 / FR-10: AI provider switching & topic tag generation."""
+    organizer_hdrs = auth_headers("diana")
+
+    providers_resp = client.get("/ai/providers", headers=organizer_hdrs)
+    assert providers_resp.status_code == 200
+    assert "gemini" in providers_resp.json()["available_providers"]
+    assert "ollama" in providers_resp.json()["available_providers"]
+
+    patch_resp = client.patch(
+        "/ai/providers",
+        headers=organizer_hdrs,
+        json={"provider": "gemini", "gemini_model": "gemini-2.5-flash"},
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["active_provider"] == "gemini"
+
+    # Reset back to local so other tests use default local provider
+    client.patch("/ai/providers", headers=organizer_hdrs, json={"provider": "local"})
+
+    tag_resp = client.post(
+        f"/ai/submissions/{seeded_submission['id']}/tags",
+        headers=organizer_hdrs,
+    )
+    assert tag_resp.status_code == 200
+    assert len(tag_resp.json()["tags"]) >= 1
+
+    bulk_resp = client.post(
+        f"/conferences/{seeded_submission['conference_id']}/ai-tags/generate-all",
+        headers=organizer_hdrs,
+    )
+    assert bulk_resp.status_code == 200
+    assert bulk_resp.json()["submissions_tagged"] >= 1
+
+
+@pytest.mark.integration
+@pytest.mark.security
+def test_admin_role_management_and_self_lockout_guard(
+    client,
+    db_session: Session,
+    auth_headers,
+    seeded_users,
+):
+    """US-24 / FR-08: Admin can manage roles for other users but cannot remove own admin role."""
+    from app.models.models import UserRole
+
+    # Grant Diana admin role for this test
+    db_session.add(UserRole(user_id=seeded_users["diana"]["id"], role=Role.admin))
+    db_session.flush()
+    admin_hdrs = auth_headers("diana")
+
+    # Non-admin blocked
+    blocked = client.put(
+        f"/admin/users/{seeded_users['alice']['id']}/roles",
+        headers=auth_headers("alice"),
+        json={"roles": ["author", "admin"]},
+    )
+    assert blocked.status_code == 403
+
+    # Admin updates Alice's roles
+    ok = client.put(
+        f"/admin/users/{seeded_users['alice']['id']}/roles",
+        headers=admin_hdrs,
+        json={"roles": ["author", "guest"]},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["roles"] == ["author", "guest"]
+
+    # Admin cannot strip own admin role
+    self_lockout = client.put(
+        f"/admin/users/{seeded_users['diana']['id']}/roles",
+        headers=admin_hdrs,
+        json={"roles": ["organizer"]},
+    )
+    assert self_lockout.status_code == 400

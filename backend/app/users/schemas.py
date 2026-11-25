@@ -20,6 +20,10 @@ class PasswordChangeRequest(SQLModel):
     new_password: str
 
 
+class UpdateUserRolesRequest(SQLModel):
+    roles: list[str]
+
+
 class AdminCounts(SQLModel):
     users: int
     reviewers: int

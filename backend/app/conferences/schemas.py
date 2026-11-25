@@ -45,6 +45,7 @@ class ChairSubmissionItem(SQLModel):
     co_author_names: list[str]
     status: str
     average_score: float | None = None
+    topic_tags: list[str] = []
     reviews: list[ChairReviewBrief]
 
 
@@ -67,6 +68,7 @@ class CommitteeMemberPublic(SQLModel):
     email: str
     affiliation: str | None = None
     expertise: str | None = None
+    topic_tags: list[str] = []
     roles: list[str]
     completed_reviews: int
     total_assigned: int

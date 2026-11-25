@@ -240,6 +240,15 @@ export function SubmissionPage({ conference }: SubmissionPageProps) {
                 </div>
                 <h2 className="paper-title">{sub.title}</h2>
                 <p className="paper-abstract">{sub.abstract}</p>
+                {sub.topic_tags.length > 0 && (
+                  <div className="ai-tag-list">
+                    {sub.topic_tags.map((tag, idx) => (
+                      <span key={tag} className={`ai-tag ai-tag-${idx % 5}`}>
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {sub.co_authors.length > 0 && (
                   <div className="paper-coauthors">
                     Co-authors: {sub.co_authors.map((ca) => ca.name).join(', ')}

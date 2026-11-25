@@ -21,6 +21,7 @@ from app.models.models import (
     Role,
     Submission,
     SubmissionStatus,
+    TopicTag,
     User,
 )
 from app.notifications.service import send_decision_notification
@@ -84,6 +85,12 @@ def _serialize_submission(
     co_author_rows = session.exec(
         select(CoAuthor).where(CoAuthor.submission_id == submission.id)
     ).all()
+    tag_rows = session.exec(
+        select(TopicTag).where(
+            TopicTag.entity_type == "submission",
+            TopicTag.entity_id == submission.id,
+        )
+    ).all()
     now = utcnow()
     decision_released = (
         now >= ensure_utc(conf.notification_deadline) if conf is not None else False
@@ -110,6 +117,7 @@ def _serialize_submission(
             )
             for row in co_author_rows
         ],
+        topic_tags=[row.tag for row in tag_rows],
         decision_released=decision_released,
         can_edit=can_edit,
         created_at=submission.created_at,

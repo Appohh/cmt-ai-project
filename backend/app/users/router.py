@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select
 
@@ -13,6 +15,7 @@ from app.core.security import (
     AuthenticatedUser,
     get_current_user,
     hash_password,
+    normalize_role,
     require_roles,
     verify_password,
 )
@@ -32,6 +35,7 @@ from app.users.schemas import (
     AdminOverviewResponse,
     PasswordChangeRequest,
     ProfileUpdateRequest,
+    UpdateUserRolesRequest,
 )
 
 router = APIRouter(tags=["users"])
@@ -175,3 +179,61 @@ def get_admin_overview(
         ),
         users=user_directory,
     )
+
+
+@router.put("/admin/users/{user_id}/roles", response_model=UserPublic)
+def update_user_roles(
+    user_id: uuid.UUID,
+    payload: UpdateUserRolesRequest,
+    session: SessionDep,
+    auth: AuthenticatedUser = Depends(require_roles(Role.admin)),
+):
+    """Update assigned roles for a user account (US-24 / FR-08)."""
+    target_user = session.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    parsed_roles: list[Role] = []
+    seen: set[Role] = set()
+    for raw_role in payload.roles:
+        try:
+            role_enum = Role(normalize_role(raw_role))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid role '{raw_role}'",
+            ) from exc
+        if role_enum not in seen:
+            seen.add(role_enum)
+            parsed_roles.append(role_enum)
+
+    if not parsed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A user must have at least one assigned role",
+        )
+
+    if target_user.id == auth.user.id and Role.admin not in parsed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot remove your own Admin role",
+        )
+
+    existing_rows = session.exec(
+        select(UserRole).where(UserRole.user_id == target_user.id)
+    ).all()
+    for row in existing_rows:
+        session.delete(row)
+    session.flush()
+
+    for role_enum in parsed_roles:
+        session.add(UserRole(user_id=target_user.id, role=role_enum))
+    session.commit()
+
+    log_action(
+        "admin.roles_updated",
+        actor_id=auth.user.id,
+        target_id=target_user.id,
+        details={"roles": sorted(r.value for r in parsed_roles)},
+    )
+    return build_user_public(target_user, parsed_roles)

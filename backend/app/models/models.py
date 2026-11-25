@@ -118,3 +118,14 @@ class Review(SQLModel, table=True):
     comments: str | None = Field(default=None, sa_type=Text)
     created_at: datetime = Field(default=None, sa_column_kwargs=CREATED_AT)
     updated_at: datetime = Field(default=None, sa_column_kwargs=UPDATED_AT)
+
+
+class TopicTag(SQLModel, table=True):
+    __tablename__ = "topic_tags"
+    __table_args__ = (UniqueConstraint("entity_type", "entity_id", "tag"),)
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    entity_type: str = Field(max_length=32, index=True)
+    entity_id: uuid.UUID = Field(index=True)
+    tag: str = Field(max_length=80)
+    created_at: datetime = Field(default=None, sa_column_kwargs=CREATED_AT)

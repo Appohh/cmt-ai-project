@@ -12,6 +12,8 @@ import {
 } from '../components/Icons'
 import { Modal } from '../components/Modal'
 import type {
+  AIProviderName,
+  AIProviderStatus,
   AIRecommendation,
   ChairSubmissionItem,
   ChairSubmissionsResponse,
@@ -46,11 +48,25 @@ function paperStatusBadge(status: ChairSubmissionItem['status']): string {
   return 'badge badge-withdrawn'
 }
 
+function tagColorClass(tag: string): string {
+  let hash = 0
+  for (let i = 0; i < tag.length; i += 1) {
+    hash = (hash * 31 + tag.charCodeAt(i)) >>> 0
+  }
+  return `ai-tag-${hash % 5}`
+}
+
 export function ConferencePage({ conference }: ConferencePageProps) {
+  const conferenceId = conference?.id
   const [subTab, setSubTab] = useState<'submissions' | 'committee'>('submissions')
   const [filter, setFilter] = useState<'all' | 'needs_reviews' | 'decided'>('all')
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [chairData, setChairData] = useState<ChairSubmissionsResponse | null>(null)
   const [committeeData, setCommitteeData] = useState<ConferenceCommitteeResponse | null>(null)
+  const [aiStatus, setAiStatus] = useState<AIProviderStatus | null>(null)
+  const [activeProvider, setActiveProvider] = useState<AIProviderName>('local')
+  const [generatingTags, setGeneratingTags] = useState(false)
+  const [aiNotice, setAiNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -78,33 +94,39 @@ export function ConferencePage({ conference }: ConferencePageProps) {
   const [copied, setCopied] = useState(false)
 
   const loadWorkspace = useCallback(async () => {
-    if (!conference) return
+    if (!conferenceId) return
     setError(null)
     try {
-      const [subsRes, commRes] = await Promise.all([
-        api.conferences.getChairSubmissions(conference.id),
-        api.conferences.getCommittee(conference.id),
+      const [subsRes, commRes, provRes] = await Promise.all([
+        api.conferences.getChairSubmissions(conferenceId),
+        api.conferences.getCommittee(conferenceId),
+        api.ai.getProviders(),
       ])
       setChairData(subsRes)
       setCommitteeData(commRes)
+      setAiStatus(provRes)
+      setActiveProvider(provRes.active_provider)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load chair workspace')
     } finally {
       setLoading(false)
     }
-  }, [conference])
+  }, [conferenceId])
 
   useEffect(() => {
-    if (!conference) return
+    if (!conferenceId) return
     let active = true
     Promise.all([
-      api.conferences.getChairSubmissions(conference.id),
-      api.conferences.getCommittee(conference.id),
+      api.conferences.getChairSubmissions(conferenceId),
+      api.conferences.getCommittee(conferenceId),
+      api.ai.getProviders(),
     ])
-      .then(([subsRes, commRes]) => {
+      .then(([subsRes, commRes, provRes]) => {
         if (active) {
           setChairData(subsRes)
           setCommitteeData(commRes)
+          setAiStatus(provRes)
+          setActiveProvider(provRes.active_provider)
           setError(null)
         }
       })
@@ -121,19 +143,44 @@ export function ConferencePage({ conference }: ConferencePageProps) {
     return () => {
       active = false
     }
-  }, [conference])
+  }, [conferenceId])
 
-  async function openAssignModal(paper: ChairSubmissionItem) {
-    if (!conference) return
-    setAssignTarget(paper)
-    setRecommendations([])
-    setAssignError(null)
-    setAiLoading(true)
-    const fallbackFirst = committeeData?.members.find((m) => m.roles.includes('reviewer'))
-    setManualReviewerId(fallbackFirst?.id ?? '')
-
+  async function handleSwitchProvider(next: AIProviderName) {
+    setActiveProvider(next)
+    setAiNotice(null)
     try {
-      const res = await api.ai.matchReviewers(conference.id, paper.id)
+      const updated = await api.ai.updateProviders({ provider: next })
+      setAiStatus(updated)
+      setActiveProvider(updated.active_provider)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not switch AI provider')
+    }
+  }
+
+  async function handleGenerateAllTags() {
+    if (!conferenceId) return
+    setError(null)
+    setAiNotice(null)
+    setGeneratingTags(true)
+    try {
+      const res = await api.ai.generateAllConferenceTags(conferenceId, activeProvider)
+      setAiNotice(
+        `Generated AI topic tags for ${res.submissions_tagged} papers & ${res.reviewers_tagged} reviewers (${res.provider}).`,
+      )
+      await loadWorkspace()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to generate AI topic tags')
+    } finally {
+      setGeneratingTags(false)
+    }
+  }
+
+  async function runAiMatch(paper: ChairSubmissionItem, providerChoice: AIProviderName) {
+    if (!conferenceId) return
+    setAiLoading(true)
+    setAssignError(null)
+    try {
+      const res = await api.ai.matchReviewers(conferenceId, paper.id, providerChoice)
       setRecommendations(res.recommendations)
       setAiProviderLabel(res.provider)
     } catch (err) {
@@ -145,6 +192,15 @@ export function ConferencePage({ conference }: ConferencePageProps) {
     } finally {
       setAiLoading(false)
     }
+  }
+
+  async function openAssignModal(paper: ChairSubmissionItem) {
+    if (!conferenceId) return
+    setAssignTarget(paper)
+    setRecommendations([])
+    const fallbackFirst = committeeData?.members.find((m) => m.roles.includes('reviewer'))
+    setManualReviewerId(fallbackFirst?.id ?? '')
+    await runAiMatch(paper, activeProvider)
   }
 
   async function handleConfirmAssign(reviewerId: string) {
@@ -193,12 +249,12 @@ export function ConferencePage({ conference }: ConferencePageProps) {
 
   async function handleSendInvite(event: FormEvent) {
     event.preventDefault()
-    if (!conference) return
+    if (!conferenceId) return
     setInviteError(null)
     setCopied(false)
     setInviteSending(true)
     try {
-      const res = await api.conferences.createInvitation(conference.id, inviteEmail, inviteRole)
+      const res = await api.conferences.createInvitation(conferenceId, inviteEmail, inviteRole)
       setLatestInviteLink(res.invite_link)
       setLatestRawToken(res.raw_token)
       setInviteEmail('')
@@ -222,7 +278,22 @@ export function ConferencePage({ conference }: ConferencePageProps) {
   }
 
   const allSubmissions = chairData?.submissions ?? []
+  const members = committeeData?.members ?? []
+
+  // Collect all unique AI topic tags across submissions & reviewers for filtering (US-26)
+  const tagSet = new Set<string>()
+  for (const s of allSubmissions) {
+    for (const t of s.topic_tags) tagSet.add(t)
+  }
+  for (const m of members) {
+    for (const t of m.topic_tags) tagSet.add(t)
+  }
+  const allTags = Array.from(tagSet).sort((a, b) => a.localeCompare(b))
+
   const filteredSubmissions = allSubmissions.filter((sub) => {
+    if (selectedTag && !sub.topic_tags.includes(selectedTag)) {
+      return false
+    }
     if (filter === 'needs_reviews') {
       return sub.reviews.length === 0 || sub.reviews.some((r) => r.score === null)
     }
@@ -232,7 +303,10 @@ export function ConferencePage({ conference }: ConferencePageProps) {
     return true
   })
 
-  const members = committeeData?.members ?? []
+  const filteredMembers = selectedTag
+    ? members.filter((m) => m.topic_tags.includes(selectedTag))
+    : members
+
   const reviewerCandidates = members.filter((m) => m.roles.includes('reviewer'))
 
   return (
@@ -241,7 +315,7 @@ export function ConferencePage({ conference }: ConferencePageProps) {
         <div>
           <h1 className="page-title">Chair Workspace</h1>
           <p className="page-subtitle">
-            Assign reviewers, monitor review completion, and record paper decisions.
+            Assign AI-matched reviewers, generate topic tags, and record paper decisions.
           </p>
         </div>
 
@@ -263,10 +337,20 @@ export function ConferencePage({ conference }: ConferencePageProps) {
             </button>
           </div>
 
+          <button
+            type="button"
+            className="btn btn-ai btn-sm"
+            disabled={generatingTags || !conference}
+            onClick={handleGenerateAllTags}
+          >
+            <SparklesIcon />
+            {generatingTags ? 'Tagging...' : 'Generate AI Tags'}
+          </button>
+
           {subTab === 'committee' && (
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-primary btn-sm"
               onClick={() => {
                 setInviteError(null)
                 setLatestInviteLink(null)
@@ -282,6 +366,56 @@ export function ConferencePage({ conference }: ConferencePageProps) {
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
+      {aiNotice && <div className="alert alert-success">{aiNotice}</div>}
+
+      {/* AI Engine Switcher & Topic Tag Filter Bar */}
+      <div className="surface-card ai-toolbar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span className="ai-provider-pill">
+            <SparklesIcon />
+            AI Engine
+          </span>
+          <div className="segmented">
+            {(['local', 'ollama', 'gemini'] as AIProviderName[]).map((prov) => (
+              <button
+                key={prov}
+                type="button"
+                className={`segmented-btn${activeProvider === prov ? ' active' : ''}`}
+                onClick={() => handleSwitchProvider(prov)}
+              >
+                {prov === 'local'
+                  ? 'Local TF-IDF'
+                  : prov === 'ollama'
+                    ? `Ollama${aiStatus?.ollama_reachable ? ' ●' : ''}`
+                    : `Gemini${aiStatus?.gemini_configured ? ' ●' : ''}`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {allTags.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={`ai-tag ${selectedTag === null ? 'ai-tag-active' : 'ai-tag-0'}`}
+              onClick={() => setSelectedTag(null)}
+            >
+              All topics
+            </button>
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className={`ai-tag ${selectedTag === tag ? 'ai-tag-active' : tagColorClass(tag)}`}
+                onClick={() => setSelectedTag((prev) => (prev === tag ? null : tag))}
+              >
+                <SparklesIcon />
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {loading ? (
         <div className="surface-card empty-state">Loading chair workspace...</div>
@@ -347,11 +481,27 @@ export function ConferencePage({ conference }: ConferencePageProps) {
                 <tbody>
                   {filteredSubmissions.map((sub) => (
                     <tr key={sub.id}>
-                      <td style={{ maxWidth: 340 }}>
+                      <td style={{ maxWidth: 360 }}>
                         <div className="table-paper-title">{sub.title}</div>
                         <div className="table-paper-authors">
                           {[sub.author_name, ...sub.co_author_names].join(', ')}
                         </div>
+                        {sub.topic_tags.length > 0 && (
+                          <div className="ai-tag-list">
+                            {sub.topic_tags.map((tag) => (
+                              <button
+                                key={tag}
+                                type="button"
+                                className={`ai-tag ${selectedTag === tag ? 'ai-tag-active' : tagColorClass(tag)}`}
+                                onClick={() =>
+                                  setSelectedTag((prev) => (prev === tag ? null : tag))
+                                }
+                              >
+                                {tag}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </td>
 
                       <td>
@@ -399,7 +549,7 @@ export function ConferencePage({ conference }: ConferencePageProps) {
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button
                             type="button"
-                            className="btn btn-blue btn-sm"
+                            className="btn btn-ai btn-sm"
                             onClick={() => openAssignModal(sub)}
                           >
                             <SparklesIcon />
@@ -423,7 +573,7 @@ export function ConferencePage({ conference }: ConferencePageProps) {
         </>
       ) : (
         <div className="committee-grid">
-          {members.map((member, idx) => {
+          {filteredMembers.map((member, idx) => {
             const theme = BANNER_THEMES[idx % BANNER_THEMES.length]
             return (
               <div key={member.id} className="surface-card committee-card">
@@ -439,6 +589,22 @@ export function ConferencePage({ conference }: ConferencePageProps) {
                 </div>
                 <div className="committee-expertise">
                   {member.expertise || 'No expertise keywords specified.'}
+                  {member.topic_tags.length > 0 && (
+                    <div className="ai-tag-list">
+                      {member.topic_tags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          className={`ai-tag ${selectedTag === tag ? 'ai-tag-active' : tagColorClass(tag)}`}
+                          onClick={() =>
+                            setSelectedTag((prev) => (prev === tag ? null : tag))
+                          }
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="committee-footer">
                   {member.completed_reviews}/{member.total_assigned} reviews done
@@ -451,20 +617,47 @@ export function ConferencePage({ conference }: ConferencePageProps) {
 
       {assignTarget && (
         <Modal
-          title={`Assign reviewers · ${assignTarget.title}`}
+          title={`AI Reviewers · ${assignTarget.title}`}
           icon={<SparklesIcon />}
           wide
           onClose={() => setAssignTarget(null)}
         >
-          <p className="release-note" style={{ marginBottom: 14 }}>
-            Matched on title &amp; abstract only ({aiProviderLabel}); author details and conflicts
-            of interest are excluded.
-          </p>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              marginBottom: 14,
+              flexWrap: 'wrap',
+            }}
+          >
+            <p className="release-note">
+              Matched on title &amp; abstract only ({aiProviderLabel}); author PII &amp; COI
+              excluded.
+            </p>
+            <div className="segmented">
+              {(['local', 'ollama', 'gemini'] as AIProviderName[]).map((prov) => (
+                <button
+                  key={prov}
+                  type="button"
+                  className={`segmented-btn${activeProvider === prov ? ' active' : ''}`}
+                  disabled={aiLoading}
+                  onClick={() => {
+                    setActiveProvider(prov)
+                    void runAiMatch(assignTarget, prov)
+                  }}
+                >
+                  {prov === 'local' ? 'Local' : prov === 'ollama' ? 'Ollama' : 'Gemini'}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {assignError && <div className="alert alert-error">{assignError}</div>}
 
           {aiLoading ? (
-            <div className="empty-state">Computing reviewer match scores...</div>
+            <div className="empty-state">Computing AI reviewer match scores...</div>
           ) : recommendations.length === 0 ? (
             <div className="alert alert-info">
               No eligible reviewer recommendations available. Use manual assignment below.
@@ -478,7 +671,7 @@ export function ConferencePage({ conference }: ConferencePageProps) {
                       #{String(idx + 1).padStart(2, '0')}
                     </span>
                     <span>{rec.name || rec.reviewer_id}</span>
-                    <span className="badge badge-submitted">
+                    <span className="ai-tag ai-tag-0">
                       {Math.round(rec.score * 100)}% Match
                     </span>
                     <span className="release-note">{rec.active_reviews} active</span>
@@ -486,6 +679,15 @@ export function ConferencePage({ conference }: ConferencePageProps) {
                   <div className="ai-candidate-exp">
                     {rec.expertise || rec.affiliation || 'Reviewer'}
                   </div>
+                  {rec.topic_tags.length > 0 && (
+                    <div className="ai-tag-list">
+                      {rec.topic_tags.map((tag) => (
+                        <span key={tag} className={`ai-tag ${tagColorClass(tag)}`}>
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {rec.already_assigned ? (

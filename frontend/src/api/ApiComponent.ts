@@ -1,13 +1,18 @@
 import type {
   AIMatchResponse,
+  AIProviderName,
+  AIProviderStatus,
   AdminOverviewResponse,
+  BulkTagsResponse,
   ChairSubmissionsResponse,
   CoAuthorInput,
   Conference,
   ConferenceCommitteeResponse,
+  EntityTagsResponse,
   InvitationAcceptResponse,
   InvitationCreatedResponse,
   ReviewAssignment,
+  Role,
   Submission,
   SubmissionReviewsResponse,
   TokenResponse,
@@ -164,6 +169,12 @@ export const api = {
     getAdminOverview(): Promise<AdminOverviewResponse> {
       return request<AdminOverviewResponse>('/admin/overview')
     },
+    updateRoles(userId: string, roles: Role[]): Promise<UserPublic> {
+      return request<UserPublic>(`/admin/users/${userId}/roles`, {
+        method: 'PUT',
+        body: JSON.stringify({ roles }),
+      })
+    },
   },
 
   conferences: {
@@ -309,11 +320,60 @@ export const api = {
   },
 
   ai: {
-    matchReviewers(conferenceId: string, submissionId: string): Promise<AIMatchResponse> {
+    getProviders(): Promise<AIProviderStatus> {
+      return request<AIProviderStatus>('/ai/providers')
+    },
+    updateProviders(payload: {
+      provider?: AIProviderName
+      ollama_base_url?: string
+      ollama_model?: string
+      gemini_api_key?: string
+      gemini_model?: string
+      openai_api_key?: string
+      openai_model?: string
+    }): Promise<AIProviderStatus> {
+      return request<AIProviderStatus>('/ai/providers', {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      })
+    },
+    matchReviewers(
+      conferenceId: string,
+      submissionId: string,
+      provider?: AIProviderName,
+    ): Promise<AIMatchResponse> {
+      const qs = provider ? `?provider=${encodeURIComponent(provider)}` : ''
       return request<AIMatchResponse>(
-        `/conferences/${conferenceId}/submissions/${submissionId}/ai-match`,
+        `/conferences/${conferenceId}/submissions/${submissionId}/ai-match${qs}`,
         { method: 'POST' },
       )
+    },
+    generateSubmissionTags(
+      submissionId: string,
+      provider?: AIProviderName,
+    ): Promise<EntityTagsResponse> {
+      const qs = provider ? `?provider=${encodeURIComponent(provider)}` : ''
+      return request<EntityTagsResponse>(`/ai/submissions/${submissionId}/tags${qs}`, {
+        method: 'POST',
+      })
+    },
+    generateReviewerTags(
+      userId: string,
+      provider?: AIProviderName,
+    ): Promise<EntityTagsResponse> {
+      const qs = provider ? `?provider=${encodeURIComponent(provider)}` : ''
+      return request<EntityTagsResponse>(`/ai/reviewers/${userId}/tags${qs}`, {
+        method: 'POST',
+      })
+    },
+    generateAllConferenceTags(
+      conferenceId: string,
+      provider?: AIProviderName,
+    ): Promise<BulkTagsResponse> {
+      const qs = provider ? `?provider=${encodeURIComponent(provider)}` : ''
+      return request<BulkTagsResponse>(`/conferences/${conferenceId}/ai-tags/generate-all${qs}`, {
+        method: 'POST',
+      })
     },
   },
 }

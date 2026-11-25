@@ -31,6 +31,7 @@ class SubmissionPublic(SQLModel):
     abstract: str
     status: str
     co_authors: list[CoAuthorPublic] = []
+    topic_tags: list[str] = []
     decision_released: bool = False
     can_edit: bool = False
     created_at: datetime | None = None

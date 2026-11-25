@@ -1,4 +1,4 @@
-"""AI-assisted reviewer matching service (SEC-05 PII stripping + NFR-04 human-in-the-loop)."""
+"""AI-assisted reviewer matching and topic tag generation (SEC-05 + NFR-04)."""
 
 from __future__ import annotations
 
@@ -39,3 +39,41 @@ def recommend_reviewers(
         }
         for item in scored
     ]
+
+
+def generate_topic_tags(
+    text: str,
+    max_tags: int = 4,
+    provider_override: str | None = None,
+) -> tuple[str, list[str]]:
+    """Generate concise academic topic tags from PII-free text via LLMProviderComponent."""
+    clean_text = (text or "").strip()
+    if not clean_text:
+        return "local", []
+
+    provider_name, provider = get_matching_provider(override_provider=provider_override)
+    tags = provider.generate_tags(clean_text, max_tags=max_tags)
+    if getattr(provider, "last_fallback_used", False):
+        provider_name = f"{provider_name} → local fallback"
+    return provider_name, tags
+
+
+def generate_bulk_topic_tags(
+    items: list[dict[str, str]],
+    max_tags: int = 4,
+    provider_override: str | None = None,
+) -> tuple[str, dict[str, list[str]]]:
+    """Generate topic tags for multiple PII-free items in a single batched AI call."""
+    safe_items = [
+        {"id": str(item["id"]), "text": str(item["text"]).strip()}
+        for item in items
+        if str(item.get("text", "")).strip()
+    ]
+    if not safe_items:
+        return "local", {}
+
+    provider_name, provider = get_matching_provider(override_provider=provider_override)
+    tag_map = provider.generate_bulk_tags(safe_items, max_tags=max_tags)
+    if getattr(provider, "last_fallback_used", False):
+        provider_name = f"{provider_name} → local fallback"
+    return provider_name, tag_map

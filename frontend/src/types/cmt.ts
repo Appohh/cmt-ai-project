@@ -1,5 +1,7 @@
 export type Role = 'author' | 'reviewer' | 'organizer' | 'admin' | 'guest'
 
+export type AIProviderName = 'local' | 'ollama' | 'gemini' | 'openai'
+
 export type AppPage = 'papers' | 'reviews' | 'chair' | 'admin' | 'profile'
 
 export interface UserPublic {
@@ -49,6 +51,7 @@ export interface Submission {
   abstract: string
   status: 'submitted' | 'withdrawn' | 'accepted' | 'rejected'
   co_authors: CoAuthor[]
+  topic_tags: string[]
   decision_released: boolean
   can_edit: boolean
   created_at: string | null
@@ -104,6 +107,7 @@ export interface ChairSubmissionItem {
   co_author_names: string[]
   status: 'submitted' | 'withdrawn' | 'accepted' | 'rejected'
   average_score: number | null
+  topic_tags: string[]
   reviews: ChairReviewBrief[]
 }
 
@@ -124,6 +128,7 @@ export interface CommitteeMember {
   email: string
   affiliation: string | null
   expertise: string | null
+  topic_tags: string[]
   roles: Role[]
   completed_reviews: number
   total_assigned: number
@@ -163,6 +168,7 @@ export interface AIRecommendation {
   name: string | null
   affiliation: string | null
   expertise: string | null
+  topic_tags: string[]
   active_reviews: number
   already_assigned: boolean
 }
@@ -171,6 +177,32 @@ export interface AIMatchResponse {
   submission_id: string
   provider: string
   recommendations: AIRecommendation[]
+}
+
+export interface AIProviderStatus {
+  active_provider: AIProviderName
+  available_providers: AIProviderName[]
+  ollama_base_url: string
+  ollama_model: string
+  ollama_reachable: boolean
+  gemini_model: string
+  gemini_configured: boolean
+  openai_model: string
+  openai_configured: boolean
+}
+
+export interface EntityTagsResponse {
+  entity_type: string
+  entity_id: string
+  provider: string
+  tags: string[]
+}
+
+export interface BulkTagsResponse {
+  conference_id: string
+  provider: string
+  submissions_tagged: number
+  reviewers_tagged: number
 }
 
 export interface AdminOverviewResponse {

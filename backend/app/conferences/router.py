@@ -37,6 +37,7 @@ from app.models.models import (
     Review,
     Role,
     Submission,
+    TopicTag,
     User,
     UserRole,
 )
@@ -117,6 +118,13 @@ def get_conference_submissions(
     unassigned_papers = 0
     items: list[ChairSubmissionItem] = []
 
+    sub_tag_rows = session.exec(
+        select(TopicTag).where(TopicTag.entity_type == "submission")
+    ).all()
+    tags_by_sub: dict[uuid.UUID, list[str]] = {}
+    for trow in sub_tag_rows:
+        tags_by_sub.setdefault(trow.entity_id, []).append(trow.tag)
+
     for sub in submissions:
         author = _get_user(sub.author_id)
         author_name = f"{author.first_name} {author.last_name}" if author else "Unknown Author"
@@ -170,6 +178,7 @@ def get_conference_submissions(
                 co_author_names=[ca.name for ca in co_authors],
                 status=sub.status.value,
                 average_score=avg_score,
+                topic_tags=tags_by_sub.get(sub.id, []),
                 reviews=review_briefs,
             )
         )
@@ -219,6 +228,13 @@ def get_conference_committee(
         else []
     )
 
+    reviewer_tag_rows = session.exec(
+        select(TopicTag).where(TopicTag.entity_type == "reviewer")
+    ).all()
+    tags_by_reviewer: dict[uuid.UUID, list[str]] = {}
+    for trow in reviewer_tag_rows:
+        tags_by_reviewer.setdefault(trow.entity_id, []).append(trow.tag)
+
     members: list[CommitteeMemberPublic] = []
     for uid in committee_ids:
         user = session.get(User, uid)
@@ -237,6 +253,7 @@ def get_conference_committee(
                 email=user.email,
                 affiliation=user.affiliation,
                 expertise=user.expertise,
+                topic_tags=tags_by_reviewer.get(user.id, []),
                 roles=sorted(r.value for r in roles_by_user.get(uid, [])),
                 completed_reviews=completed,
                 total_assigned=len(user_reviews),
