@@ -49,5 +49,7 @@ def valid_pdf_bytes() -> bytes:
         b"%PDF-1.4\n"
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
         b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n"
+        b"3 0 obj\n<< /Author (Alice Smith) /Creator (University of Amsterdam) >>\nendobj\n"
+        b"trailer\n<< /Root 1 0 R /Info 3 0 R >>\n"
         b"%%EOF\n"
     )
