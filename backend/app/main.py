@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.conferences import router as conferences
 from app.core.database import engine
 
 app = FastAPI()
@@ -7,6 +8,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
 )
+
+app.include_router(conferences.router)
 
 @app.get("/")
 def read_root():
