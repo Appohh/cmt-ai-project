@@ -1,0 +1,129 @@
+// Conference Management Tool - database design v2 (MUST haves + topic_tags)
+// Paste into https://dbdiagram.io to view
+
+Enum role {
+  author
+  reviewer
+  organizer
+  admin
+  guest
+}
+
+Enum invitation_status {
+  invited
+  accepted
+  declined
+}
+
+Enum submission_status {
+  submitted
+  withdrawn
+  accepted
+  rejected
+}
+
+Table users {
+  id uuid [primary key]
+  email varchar(255) [not null, unique]
+  password_hash varchar(255) [not null]
+  first_name varchar(100) [not null]
+  last_name varchar(100) [not null]
+  affiliation varchar(255)
+  expertise text [note: 'For AI reviewer matching']
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+}
+
+Table user_roles {
+  user_id uuid [primary key]
+  role role [primary key]
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+
+  Note: 'Every user gets the author role on registration, so each user always has at least one role'
+}
+
+Table conferences {
+  id uuid [primary key]
+  name varchar(255) [not null]
+  description text
+  submission_deadline timestamp [not null]
+  review_deadline timestamp [not null]
+  notification_deadline timestamp [not null, note: 'Reviews + decisions visible to authors after this']
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+}
+
+Table invitations {
+  id uuid [primary key]
+  conference_id uuid [not null]
+  email varchar(255) [not null]
+  role role [not null, note: 'reviewer or guest']
+  status invitation_status [not null, default: 'invited']
+  token_hash varchar(255) [not null, unique, note: 'SHA-256 of the token in the invitation link']
+  expires_at timestamp [not null]
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+}
+
+Table submissions {
+  id uuid [primary key]
+  conference_id uuid [not null]
+  author_id uuid [not null]
+  title varchar(500) [not null]
+  abstract text [not null]
+  file_path varchar(500) [not null, note: 'Anonymous PDF uploaded by the author; PDF metadata stripped on upload']
+  status submission_status [not null, default: 'submitted']
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+}
+
+Table co_authors {
+  id uuid [primary key]
+  submission_id uuid [not null]
+  name varchar(200) [not null]
+  email varchar(255) [not null]
+  affiliation varchar(255)
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+}
+
+Table reviews {
+  id uuid [primary key]
+  submission_id uuid [not null]
+  reviewer_id uuid [not null]
+  status invitation_status [not null, default: 'invited']
+  score integer [note: 'NULL until the review is submitted']
+  confidence integer
+  comments text
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+
+  indexes {
+    (submission_id, reviewer_id) [unique]
+  }
+}
+
+Table topic_tags {
+  id uuid [primary key]
+  entity_type varchar(32) [not null, note: "'submission' or 'reviewer'"]
+  entity_id uuid [not null, note: 'submissions.id or users.id, depending on entity_type (no FK)']
+  tag varchar(80) [not null]
+  created_at timestamp [not null, default: `now()`]
+
+  indexes {
+    entity_type
+    entity_id
+    (entity_type, entity_id, tag) [unique]
+  }
+
+  Note: 'AI-generated topic tags; polymorphic link to submissions or users, so no foreign key'
+}
+
+Ref: user_roles.user_id > users.id
+Ref: invitations.conference_id > conferences.id
+Ref: submissions.conference_id > conferences.id
+Ref: submissions.author_id > users.id
+Ref: co_authors.submission_id > submissions.id
+Ref: reviews.submission_id > submissions.id
+Ref: reviews.reviewer_id > users.id
